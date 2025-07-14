@@ -1,5 +1,3 @@
-import { useState } from 'react';
-
 // WelcomeMessage.js
 function WelcomeMessage({ username }) {
   return (
