@@ -24,3 +24,24 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+.quill-editor .ql-editor {
+  min-height: 160px;
+}
+/* ● 無序リスト（黒点） これ、効かない。Tailwindの仕様的にlist-styleがnoneで、さらにおそらく出力上は数字の方しか適用されない。一旦保留とする。*/
+.prose ul,
+.prose .ql-editor ul,
+.prose .ql-editor .ql-list {
+  list-style-type: disc !important;
+  list-style-position: inside !important;
+  margin-left: 1em !important;
+}
+
+/* ① 番号付きリスト */
+.prose ol,
+.prose .ql-editor ol,
+.prose .ql-editor .ql-list.ql-indent-0 {
+  list-style-type: decimal !important;
+  list-style-position: inside !important;
+  margin-left: 1em !important;
+}
+
