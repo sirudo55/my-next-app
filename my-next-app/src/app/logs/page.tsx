@@ -22,7 +22,7 @@ import {
 import {
   SortableContext,
   arrayMove,
-  verticalListSortingStrategy,
+  rectSortingStrategy, // ★ グリッド用
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -61,6 +61,7 @@ function SortableItem({ id, children }: { id: string; children: React.ReactNode 
           e.stopPropagation();
         }
       }}
+      className="h-full"
     >
       <div className="flex justify-end">
         <button
@@ -164,12 +165,11 @@ export default function LogsIndexPage() {
       if (!token) throw new Error('No Clerk token');
       const sb = makeAuthedClient(token);
 
-      // 量が多い場合は適宜 limit/pagination を検討
       const { data, error } = await sb
         .from('logs')
         .select('categories')
         .order('date', { ascending: false })
-        .limit(2000); // 任意の安全値
+        .limit(2000);
 
       if (error) throw error;
 
@@ -200,7 +200,6 @@ export default function LogsIndexPage() {
         .order('date', { ascending: false })
         .range(nextPage * PAGE_SIZE, nextPage * PAGE_SIZE + PAGE_SIZE - 1);
 
-      // ★サーバ側絞り込み：タブが「すべて」以外ならカテゴリでoverlaps
       if (activeTab !== 'すべて') {
         qsb = qsb.overlaps('categories', [activeTab] as any);
       }
@@ -210,7 +209,6 @@ export default function LogsIndexPage() {
 
       const rows = (data ?? []) as Log[];
 
-      // per-log 正規化
       const normalized = rows.map(l => ({
         ...l,
         categories: normalizeCats(l.categories),
@@ -249,7 +247,6 @@ export default function LogsIndexPage() {
 
     const reorderedVisible = arrayMove(visibleLogs, oldIdx, newIdx);
 
-    // UI 楽観更新
     const newAll = logs.map(l => reorderedVisible.find(v => v.id === l.id) ?? l);
     const base = Math.max(...newAll.map(l => l.sort_order ?? 0), 0) + 1000;
     const updatedVisible = reorderedVisible.map((l, i) => ({ ...l, sort_order: base - i }));
@@ -257,7 +254,6 @@ export default function LogsIndexPage() {
     merged.sort((a, b) => (b.sort_order ?? 0) - (a.sort_order ?? 0));
     setLogs(merged);
 
-    // DB反映（RPC）
     try {
       const token = await getSupabaseToken();
       if (!token) throw new Error('No Clerk token');
@@ -265,7 +261,6 @@ export default function LogsIndexPage() {
       await sb.rpc('reorder_logs', { ids: reorderedVisible.map(r => r.id) });
     } catch (e: any) {
       console.error('reorder error:', e?.message ?? e, e);
-      // 失敗時は最初のページから取り直す
       setLogs([]);
       setPage(0);
       setHasMore(true);
@@ -297,7 +292,7 @@ export default function LogsIndexPage() {
 
   return (
     <SignedIn>
-      <main className="p-6 max-w-3xl mx-auto space-y-6">
+      <main className="p-6 max-w-6xl mx-auto space-y-6">{/* ★ 横幅広げる */}
         <header className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
           <h1 className="text-2xl font-bold">ログ一覧</h1>
           <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
@@ -335,51 +330,54 @@ export default function LogsIndexPage() {
           </div>
         </header>
 
-        {/* 一覧（凝縮カード） */}
+        {/* 一覧（2カラムカード） */}
         <section className="space-y-3">
           {visibleLogs.length === 0 && (
             <p className="text-gray-500">この条件のログはありません。</p>
           )}
 
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-              {visibleLogs.map((log) => {
-                const perLogCats = normalizeCats(log.categories);
-                return (
-                  <SortableItem key={log.id} id={log.id}>
-                    <article className="border rounded p-3 bg-white shadow-sm">
-                      {/* タイトル（1行省略） */}
-                      <h3 className="font-semibold truncate">{log.title || '(no title)'}</h3>
-                      {/* カテゴリ（重複排除＋ユニーク key） */}
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {perLogCats.map((c, i) => (
-                          <span
-                            key={`${log.id}-${c}-${i}`}
-                            className="text-[10px] inline-flex items-center px-2 py-0.5 rounded-full border"
+            <SortableContext items={sortableIds} strategy={rectSortingStrategy}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {visibleLogs.map((log) => {
+                  const perLogCats = normalizeCats(log.categories);
+                  return (
+                    <SortableItem key={log.id} id={log.id}>
+                      <article className="border rounded p-3 bg-white shadow-sm h-full flex flex-col">
+                        <h3 className="font-semibold truncate">
+                          {log.title || '(no title)'}
+                        </h3>
+
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {perLogCats.map((c, i) => (
+                            <span
+                              key={`${log.id}-${c}-${i}`}
+                              className="text-[10px] inline-flex items-center px-2 py-0.5 rounded-full border"
+                            >
+                              {c}
+                            </span>
+                          ))}
+                        </div>
+
+                        <div
+                          className="prose max-w-none line-clamp-3 [&_img]:hidden text-sm text-gray-700 mt-2"
+                          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(log.memo || '') }}
+                        />
+                        <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                          <span>{format(new Date(log.date), 'yyyy-MM-dd HH:mm')}</span>
+                          <a
+                            href={`/logs/${log.id}`}
+                            className="underline hover:opacity-80"
+                            aria-label="詳細へ"
                           >
-                            {c}
-                          </span>
-                        ))}
-                      </div>
-                      {/* 本文の先頭抜粋（画像は非表示） */}
-                      <div
-                        className="prose max-w-none line-clamp-3 [&_img]:hidden text-sm text-gray-700 mt-2"
-                        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(log.memo || '') }}
-                      />
-                      <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
-                        <span>{format(new Date(log.date), 'yyyy-MM-dd HH:mm')}</span>
-                        <a
-                          href={`/logs/${log.id}`}
-                          className="underline hover:opacity-80"
-                          aria-label="詳細へ"
-                        >
-                          詳細
-                        </a>
-                      </div>
-                    </article>
-                  </SortableItem>
-                );
-              })}
+                            詳細
+                          </a>
+                        </div>
+                      </article>
+                    </SortableItem>
+                  );
+                })}
+              </div>
             </SortableContext>
           </DndContext>
 
@@ -388,7 +386,7 @@ export default function LogsIndexPage() {
             {hasMore ? (
               <button
                 disabled={loading}
-                onClick={() => fetchPage(page + 1)}
+                onClick={handleLoadMore}
                 className="px-4 py-2 border rounded hover:bg-gray-50 disabled:opacity-60"
               >
                 {loading ? '読み込み中…' : 'もっと読む'}
